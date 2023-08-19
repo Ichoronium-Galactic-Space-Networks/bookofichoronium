@@ -2,8 +2,8 @@
 
 namespace Tests\Auth;
 
-use BookStack\Auth\User;
 use BookStack\Notifications\ResetPassword;
+use BookStack\Users\Models\User;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
@@ -85,7 +85,7 @@ class ResetPasswordTest extends TestCase
 
     public function test_reset_request_is_throttled()
     {
-        $editor = $this->getEditor();
+        $editor = $this->users->editor();
         Notification::fake();
         $this->get('/password/email');
         $this->followingRedirects()->post('/password/email', [

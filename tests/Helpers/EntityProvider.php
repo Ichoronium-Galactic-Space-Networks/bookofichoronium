@@ -2,8 +2,6 @@
 
 namespace Tests\Helpers;
 
-use BookStack\Auth\Role;
-use BookStack\Auth\User;
 use BookStack\Entities\Models\Book;
 use BookStack\Entities\Models\Bookshelf;
 use BookStack\Entities\Models\Chapter;
@@ -13,6 +11,7 @@ use BookStack\Entities\Repos\BookRepo;
 use BookStack\Entities\Repos\BookshelfRepo;
 use BookStack\Entities\Repos\ChapterRepo;
 use BookStack\Entities\Repos\PageRepo;
+use BookStack\Users\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -186,40 +185,16 @@ class EntityProvider
     }
 
     /**
-     * Regenerate the permission for an entity.
-     * Centralised to manage clearing of cached elements between requests.
+     * Create and return a new test draft page.
      */
-    public function regenPermissions(Entity $entity): void
+    public function newDraftPage(array $input = ['name' => 'test page', 'html' => 'My new test page']): Page
     {
-        $entity->rebuildPermissions();
-        $entity->load('jointPermissions');
-    }
-
-    /**
-     * Set the given entity as having restricted permissions, and apply the given
-     * permissions for the given roles.
-     * @param string[] $actions
-     * @param Role[] $roles
-     */
-    public function setPermissions(Entity $entity, array $actions = [], array $roles = []): void
-    {
-        $entity->restricted = true;
-        $entity->permissions()->delete();
-
-        $permissions = [];
-        foreach ($actions as $action) {
-            foreach ($roles as $role) {
-                $permissions[] = [
-                    'role_id' => $role->id,
-                    'action'  => strtolower($action),
-                ];
-            }
-        }
-
-        $entity->permissions()->createMany($permissions);
-        $entity->save();
-        $entity->load('permissions');
-        $this->regenPermissions($entity);
+        $book = $this->book();
+        $pageRepo = app(PageRepo::class);
+        $draftPage = $pageRepo->getNewDraftPage($book);
+        $pageRepo->updatePageDraft($draftPage, $input);
+        $this->addToCache($draftPage);
+        return $draftPage;
     }
 
     /**

@@ -7,12 +7,9 @@ use BookStack\Entities\Models\BookChild;
 use BookStack\Entities\Models\Bookshelf;
 use BookStack\Entities\Repos\BookRepo;
 use Tests\TestCase;
-use Tests\Uploads\UsesImages;
 
 class BookTest extends TestCase
 {
-    use UsesImages;
-
     public function test_create()
     {
         $book = Book::factory()->make([
@@ -221,22 +218,22 @@ class BookTest extends TestCase
     public function test_books_view_shows_view_toggle_option()
     {
         /** @var Book $book */
-        $editor = $this->getEditor();
+        $editor = $this->users->editor();
         setting()->putUser($editor, 'books_view_type', 'list');
 
         $resp = $this->actingAs($editor)->get('/books');
-        $this->withHtml($resp)->assertElementContains('form[action$="/settings/users/' . $editor->id . '/switch-books-view"]', 'Grid View');
-        $this->withHtml($resp)->assertElementExists('input[name="view_type"][value="grid"]');
+        $this->withHtml($resp)->assertElementContains('form[action$="/preferences/change-view/books"]', 'Grid View');
+        $this->withHtml($resp)->assertElementExists('button[name="view"][value="grid"]');
 
-        $resp = $this->patch("/settings/users/{$editor->id}/switch-books-view", ['view_type' => 'grid']);
+        $resp = $this->patch("/preferences/change-view/books", ['view' => 'grid']);
         $resp->assertRedirect();
         $this->assertEquals('grid', setting()->getUser($editor, 'books_view_type'));
 
         $resp = $this->actingAs($editor)->get('/books');
-        $this->withHtml($resp)->assertElementContains('form[action$="/settings/users/' . $editor->id . '/switch-books-view"]', 'List View');
-        $this->withHtml($resp)->assertElementExists('input[name="view_type"][value="list"]');
+        $this->withHtml($resp)->assertElementContains('form[action$="/preferences/change-view/books"]', 'List View');
+        $this->withHtml($resp)->assertElementExists('button[name="view"][value="list"]');
 
-        $resp = $this->patch("/settings/users/{$editor->id}/switch-books-view", ['view_type' => 'list']);
+        $resp = $this->patch("/preferences/change-view/books", ['view_type' => 'list']);
         $resp->assertRedirect();
         $this->assertEquals('list', setting()->getUser($editor, 'books_view_type'));
     }
@@ -247,7 +244,7 @@ class BookTest extends TestCase
             'name' => 'информация',
         ]);
 
-        $this->assertEquals('informaciya', $book->slug);
+        $this->assertEquals('informaciia', $book->slug);
 
         $book = $this->entities->newBook([
             'name' => '¿Qué?',
@@ -304,9 +301,7 @@ class BookTest extends TestCase
         // Hide child content
         /** @var BookChild $page */
         foreach ($book->getDirectChildren() as $child) {
-            $child->restricted = true;
-            $child->save();
-            $this->entities->regenPermissions($child);
+            $this->permissions->setEntityPermissions($child, [], []);
         }
 
         $this->asEditor()->post($book->getUrl('/copy'), ['name' => 'My copy book']);
@@ -320,8 +315,8 @@ class BookTest extends TestCase
     {
         /** @var Book $book */
         $book = Book::query()->whereHas('chapters')->whereHas('directPages')->whereHas('chapters')->first();
-        $viewer = $this->getViewer();
-        $this->giveUserPermissions($viewer, ['book-create-all']);
+        $viewer = $this->users->viewer();
+        $this->permissions->grantUserRolePermissions($viewer, ['book-create-all']);
 
         $this->actingAs($viewer)->post($book->getUrl('/copy'), ['name' => 'My copy book']);
         /** @var Book $copy */
@@ -335,7 +330,7 @@ class BookTest extends TestCase
     {
         $book = $this->entities->book();
         $bookRepo = $this->app->make(BookRepo::class);
-        $coverImageFile = $this->getTestImage('cover.png');
+        $coverImageFile = $this->files->uploadedImage('cover.png');
         $bookRepo->updateCoverImage($book, $coverImageFile);
 
         $this->asEditor()->post($book->getUrl('/copy'), ['name' => 'My copy book']);
@@ -356,9 +351,9 @@ class BookTest extends TestCase
         $shelfA->appendBook($book);
         $shelfB->appendBook($book);
 
-        $viewer = $this->getViewer();
-        $this->giveUserPermissions($viewer, ['book-update-all', 'book-create-all', 'bookshelf-update-all']);
-        $this->entities->setPermissions($shelfB);
+        $viewer = $this->users->viewer();
+        $this->permissions->grantUserRolePermissions($viewer, ['book-update-all', 'book-create-all', 'bookshelf-update-all']);
+        $this->permissions->setEntityPermissions($shelfB);
 
 
         $this->asEditor()->post($book->getUrl('/copy'), ['name' => 'My copy book']);

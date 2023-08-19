@@ -2,15 +2,15 @@
 
 namespace Tests;
 
-use BookStack\Actions\ActivityType;
-use BookStack\Actions\DispatchWebhookJob;
-use BookStack\Actions\Webhook;
-use BookStack\Auth\User;
+use BookStack\Activity\ActivityType;
+use BookStack\Activity\DispatchWebhookJob;
+use BookStack\Activity\Models\Webhook;
 use BookStack\Entities\Models\Book;
 use BookStack\Entities\Models\Page;
 use BookStack\Entities\Tools\PageContent;
 use BookStack\Facades\Theme;
 use BookStack\Theming\ThemeEvents;
+use BookStack\Users\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
@@ -19,11 +19,12 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use League\CommonMark\ConfigurableEnvironmentInterface;
+use League\CommonMark\Environment\Environment;
 
 class ThemeTest extends TestCase
 {
-    protected $themeFolderName;
-    protected $themeFolderPath;
+    protected string $themeFolderName;
+    protected string $themeFolderPath;
 
     public function test_translation_text_can_be_overridden_via_theme()
     {
@@ -36,7 +37,7 @@ class ThemeTest extends TestCase
         ';
             file_put_contents($translationPath . '/entities.php', $customTranslations);
 
-            $homeRequest = $this->actingAs($this->getViewer())->get('/');
+            $homeRequest = $this->actingAs($this->users->viewer())->get('/');
             $this->withHtml($homeRequest)->assertElementContains('header nav', 'Sandwiches');
         });
     }
@@ -57,7 +58,7 @@ class ThemeTest extends TestCase
     {
         $callbackCalled = false;
         $callback = function ($environment) use (&$callbackCalled) {
-            $this->assertInstanceOf(ConfigurableEnvironmentInterface::class, $environment);
+            $this->assertInstanceOf(Environment::class, $environment);
             $callbackCalled = true;
 
             return $environment;
@@ -335,6 +336,23 @@ class ThemeTest extends TestCase
             $resp = $this->asEditor()->get($page->getUrl('/export/html'));
             $resp->assertSee($bodyStartStr);
             $resp->assertSee($bodyEndStr);
+        });
+    }
+
+    public function test_login_and_register_message_template_files_can_be_used()
+    {
+        $loginMessage = 'Welcome to this instance, login below you scallywag';
+        $registerMessage = 'You want to register? Enter the deets below you numpty';
+
+        $this->usingThemeFolder(function (string $folder) use ($loginMessage, $registerMessage) {
+            $viewDir = theme_path('auth/parts');
+            mkdir($viewDir, 0777, true);
+            file_put_contents($viewDir . '/login-message.blade.php', $loginMessage);
+            file_put_contents($viewDir . '/register-message.blade.php', $registerMessage);
+            $this->setSettings(['registration-enabled' => 'true']);
+
+            $this->get('/login')->assertSee($loginMessage);
+            $this->get('/register')->assertSee($registerMessage);
         });
     }
 

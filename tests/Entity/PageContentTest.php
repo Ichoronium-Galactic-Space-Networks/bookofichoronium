@@ -5,12 +5,9 @@ namespace Tests\Entity;
 use BookStack\Entities\Models\Page;
 use BookStack\Entities\Tools\PageContent;
 use Tests\TestCase;
-use Tests\Uploads\UsesImages;
 
 class PageContentTest extends TestCase
 {
-    use UsesImages;
-
     protected $base64Jpeg = '/9j/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=';
 
     public function test_page_includes()
@@ -109,6 +106,18 @@ class PageContentTest extends TestCase
         $this->asEditor();
         $htmlContent = $this->get($page->book->getUrl('/export/html'));
         $htmlContent->assertSee('my cat is awesome and scratchy');
+    }
+
+    public function test_page_includes_can_be_nested_up_to_three_times()
+    {
+        $page = $this->entities->page();
+        $tag = "{{@{$page->id}#bkmrk-test}}";
+        $page->html = '<p id="bkmrk-test">Hello Barry ' . $tag . '</p>';
+        $page->save();
+
+        $pageResp = $this->asEditor()->get($page->getUrl());
+        $this->withHtml($pageResp)->assertElementContains('#bkmrk-test', 'Hello Barry Hello Barry Hello Barry Hello Barry ' . $tag);
+        $this->withHtml($pageResp)->assertElementNotContains('#bkmrk-test', 'Hello Barry Hello Barry Hello Barry Hello Barry Hello Barry ' . $tag);
     }
 
     public function test_page_content_scripts_removed_by_default()
@@ -310,7 +319,7 @@ class PageContentTest extends TestCase
     {
         $this->asEditor();
         $page = $this->entities->page();
-        config()->push('app.allow_content_scripts', 'true');
+        config()->set('app.allow_content_scripts', 'true');
 
         $script = 'abc123<script>console.log("hello-test")</script>abc123';
         $page->html = "no escape {$script}";
@@ -355,7 +364,7 @@ class PageContentTest extends TestCase
     {
         $this->asEditor();
         $page = $this->entities->page();
-        config()->push('app.allow_content_scripts', 'true');
+        config()->set('app.allow_content_scripts', 'true');
 
         $script = '<p onmouseenter="console.log(\'test\')">Hello</p>';
         $page->html = "escape {$script}";
@@ -483,7 +492,7 @@ class PageContentTest extends TestCase
     {
         $page = $this->entities->page();
 
-        $this->actingAs($this->getAdmin())
+        $this->actingAs($this->users->admin())
             ->put($page->getUrl(''), [
                 'name' => 'Testing',
                 'html' => '<p>&quot;Hello &amp; welcome&quot;</p>',
@@ -591,7 +600,7 @@ class PageContentTest extends TestCase
         $imageFile = public_path($imagePath);
         $this->assertEquals(base64_decode($this->base64Jpeg), file_get_contents($imageFile));
 
-        $this->deleteImage($imagePath);
+        $this->files->deleteAtRelativePath($imagePath);
     }
 
     public function test_base64_images_get_extracted_when_containing_whitespace()
@@ -615,7 +624,7 @@ class PageContentTest extends TestCase
         $imageFile = public_path($imagePath);
         $this->assertEquals(base64_decode($base64PngWithoutWhitespace), file_get_contents($imageFile));
 
-        $this->deleteImage($imagePath);
+        $this->files->deleteAtRelativePath($imagePath);
     }
 
     public function test_base64_images_within_html_blanked_if_not_supported_extension_for_extract()
@@ -659,7 +668,7 @@ class PageContentTest extends TestCase
         $imageFile = public_path($imagePath);
         $this->assertEquals(base64_decode($this->base64Jpeg), file_get_contents($imageFile));
 
-        $this->deleteImage($imagePath);
+        $this->files->deleteAtRelativePath($imagePath);
     }
 
     public function test_markdown_base64_extract_not_limited_by_pcre_limits()
@@ -690,7 +699,7 @@ class PageContentTest extends TestCase
         $imageFile = public_path($imagePath);
         $this->assertEquals($content, file_get_contents($imageFile));
 
-        $this->deleteImage($imagePath);
+        $this->files->deleteAtRelativePath($imagePath);
         ini_set('pcre.backtrack_limit', $pcreBacktrackLimit);
         ini_set('pcre.recursion_limit', $pcreRecursionLimit);
     }
@@ -734,5 +743,24 @@ class PageContentTest extends TestCase
         ]);
 
         $this->assertStringContainsString('<p id="bkmrk-%C2%A0">&nbsp;</p>', $page->refresh()->html);
+    }
+
+    public function test_page_save_with_many_headers_and_links_is_reasonable()
+    {
+        $page = $this->entities->page();
+
+        $content = '';
+        for ($i = 0; $i < 500; $i++) {
+            $content .= "<table><tbody><tr><td><h5 id='header-{$i}'>Simple Test</h5><a href='#header-{$i}'></a></td></tr></tbody></table>";
+        }
+
+        $time = time();
+        $this->asEditor()->put($page->getUrl(), [
+            'name'    => $page->name,
+            'html'    => $content,
+        ])->assertRedirect();
+
+        $timeElapsed = time() - $time;
+        $this->assertLessThan(3, $timeElapsed);
     }
 }

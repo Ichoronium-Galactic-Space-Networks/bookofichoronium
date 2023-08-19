@@ -14,7 +14,7 @@ class RecycleBinTest extends TestCase
     public function test_recycle_bin_routes_permissions()
     {
         $page = $this->entities->page();
-        $editor = $this->getEditor();
+        $editor = $this->users->editor();
         $this->actingAs($editor)->delete($page->getUrl());
         $deletion = Deletion::query()->firstOrFail();
 
@@ -33,7 +33,7 @@ class RecycleBinTest extends TestCase
             $this->assertPermissionError($resp);
         }
 
-        $this->giveUserPermissions($editor, ['restrictions-manage-all']);
+        $this->permissions->grantUserRolePermissions($editor, ['restrictions-manage-all']);
 
         foreach ($routes as $route) {
             [$method, $url] = explode(':', $route);
@@ -41,7 +41,7 @@ class RecycleBinTest extends TestCase
             $this->assertPermissionError($resp);
         }
 
-        $this->giveUserPermissions($editor, ['settings-manage']);
+        $this->permissions->grantUserRolePermissions($editor, ['settings-manage']);
 
         foreach ($routes as $route) {
             DB::beginTransaction();
@@ -56,24 +56,24 @@ class RecycleBinTest extends TestCase
     {
         $page = $this->entities->page();
         $book = Book::query()->whereHas('pages')->whereHas('chapters')->withCount(['pages', 'chapters'])->first();
-        $editor = $this->getEditor();
+        $editor = $this->users->editor();
         $this->actingAs($editor)->delete($page->getUrl());
         $this->actingAs($editor)->delete($book->getUrl());
 
         $viewReq = $this->asAdmin()->get('/settings/recycle-bin');
         $html = $this->withHtml($viewReq);
-        $html->assertElementContains('table.table', $page->name);
-        $html->assertElementContains('table.table', $editor->name);
-        $html->assertElementContains('table.table', $book->name);
-        $html->assertElementContains('table.table', $book->pages_count . ' Pages');
-        $html->assertElementContains('table.table', $book->chapters_count . ' Chapters');
+        $html->assertElementContains('.item-list-row', $page->name);
+        $html->assertElementContains('.item-list-row', $editor->name);
+        $html->assertElementContains('.item-list-row', $book->name);
+        $html->assertElementContains('.item-list-row', $book->pages_count . ' Pages');
+        $html->assertElementContains('.item-list-row', $book->chapters_count . ' Chapters');
     }
 
     public function test_recycle_bin_empty()
     {
         $page = $this->entities->page();
         $book = Book::query()->where('id', '!=', $page->book_id)->whereHas('pages')->whereHas('chapters')->with(['pages', 'chapters'])->firstOrFail();
-        $editor = $this->getEditor();
+        $editor = $this->users->editor();
         $this->actingAs($editor)->delete($page->getUrl());
         $this->actingAs($editor)->delete($book->getUrl());
 

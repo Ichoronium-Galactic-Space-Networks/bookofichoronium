@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 use Intervention\Image\Exception\NotSupportedException;
 use Intervention\Image\Image as InterventionImage;
 use Intervention\Image\ImageManager;
-use League\Flysystem\Util;
+use League\Flysystem\WhitespacePathNormalizer;
 use Psr\SimpleCache\InvalidArgumentException;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -29,10 +29,9 @@ class ImageService
 {
     protected ImageManager $imageTool;
     protected Cache $cache;
-    protected $storageUrl;
     protected FilesystemManager $fileSystem;
 
-    protected static $supportedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    protected static array $supportedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     public function __construct(ImageManager $imageTool, FilesystemManager $fileSystem, Cache $cache)
     {
@@ -73,7 +72,7 @@ class ImageService
      */
     protected function adjustPathForStorageDisk(string $path, string $imageType = ''): string
     {
-        $path = Util::normalizePath(str_replace('uploads/images/', '', $path));
+        $path = (new WhitespacePathNormalizer())->normalizePath(str_replace('uploads/images/', '', $path));
 
         if ($this->usingSecureImages($imageType)) {
             return $path;
@@ -88,16 +87,17 @@ class ImageService
     protected function getStorageDiskName(string $imageType): string
     {
         $storageType = config('filesystems.images');
+        $localSecureInUse = ($storageType === 'local_secure' || $storageType === 'local_secure_restricted');
 
         // Ensure system images (App logo) are uploaded to a public space
-        if ($imageType === 'system' && $storageType === 'local_secure') {
-            $storageType = 'local';
+        if ($imageType === 'system' && $localSecureInUse) {
+            return 'local';
         }
 
         // Rename local_secure options to get our image specific storage driver which
         // is scoped to the relevant image directories.
-        if ($storageType === 'local_secure' || $storageType === 'local_secure_restricted') {
-            $storageType = 'local_secure_images';
+        if ($localSecureInUse) {
+            return 'local_secure_images';
         }
 
         return $storageType;
@@ -194,6 +194,14 @@ class ImageService
         return $image;
     }
 
+    public function replaceExistingFromUpload(string $path, string $type, UploadedFile $file): void
+    {
+        $imageData = file_get_contents($file->getRealPath());
+        $storage = $this->getStorageDisk($type);
+        $adjustedPath = $this->adjustPathForStorageDisk($path, $type);
+        $storage->put($adjustedPath, $imageData);
+    }
+
     /**
      * Save image data for the given path in the public space, if possible,
      * for the provided storage mechanism.
@@ -262,7 +270,7 @@ class ImageService
      * @throws Exception
      * @throws InvalidArgumentException
      */
-    public function getThumbnail(Image $image, ?int $width, ?int $height, bool $keepRatio = false): string
+    public function getThumbnail(Image $image, ?int $width, ?int $height, bool $keepRatio = false, bool $forceCreate = false): string
     {
         // Do not resize GIF images where we're not cropping
         if ($keepRatio && $this->isGif($image)) {
@@ -277,13 +285,13 @@ class ImageService
 
         // Return path if in cache
         $cachedThumbPath = $this->cache->get($thumbCacheKey);
-        if ($cachedThumbPath) {
+        if ($cachedThumbPath && !$forceCreate) {
             return $this->getPublicUrl($cachedThumbPath);
         }
 
         // If thumbnail has already been generated, serve that and cache path
         $storage = $this->getStorageDisk($image->type);
-        if ($storage->exists($this->adjustPathForStorageDisk($thumbFilePath, $image->type))) {
+        if (!$forceCreate && $storage->exists($this->adjustPathForStorageDisk($thumbFilePath, $image->type))) {
             $this->cache->put($thumbCacheKey, $thumbFilePath, 60 * 60 * 72);
 
             return $this->getPublicUrl($thumbFilePath);
@@ -462,6 +470,7 @@ class ImageService
 
         Image::query()->whereIn('type', $types)
             ->chunk(1000, function ($images) use ($checkRevisions, &$deletedPaths, $dryRun) {
+                /** @var Image $image */
                 foreach ($images as $image) {
                     $searchQuery = '%' . basename($image->path) . '%';
                     $inPage = DB::table('pages')
@@ -547,7 +556,7 @@ class ImageService
             // Check the image file exists
             && $disk->exists($imagePath)
             // Check the file is likely an image file
-            && strpos($disk->getMimetype($imagePath), 'image/') === 0;
+            && strpos($disk->mimeType($imagePath), 'image/') === 0;
     }
 
     /**
@@ -660,25 +669,21 @@ class ImageService
      */
     private function getPublicUrl(string $filePath): string
     {
-        if (is_null($this->storageUrl)) {
-            $storageUrl = config('filesystems.url');
+        $storageUrl = config('filesystems.url');
 
-            // Get the standard public s3 url if s3 is set as storage type
-            // Uses the nice, short URL if bucket name has no periods in otherwise the longer
-            // region-based url will be used to prevent http issues.
-            if ($storageUrl == false && config('filesystems.images') === 's3') {
-                $storageDetails = config('filesystems.disks.s3');
-                if (strpos($storageDetails['bucket'], '.') === false) {
-                    $storageUrl = 'https://' . $storageDetails['bucket'] . '.s3.amazonaws.com';
-                } else {
-                    $storageUrl = 'https://s3-' . $storageDetails['region'] . '.amazonaws.com/' . $storageDetails['bucket'];
-                }
+        // Get the standard public s3 url if s3 is set as storage type
+        // Uses the nice, short URL if bucket name has no periods in otherwise the longer
+        // region-based url will be used to prevent http issues.
+        if (!$storageUrl && config('filesystems.images') === 's3') {
+            $storageDetails = config('filesystems.disks.s3');
+            if (strpos($storageDetails['bucket'], '.') === false) {
+                $storageUrl = 'https://' . $storageDetails['bucket'] . '.s3.amazonaws.com';
+            } else {
+                $storageUrl = 'https://s3-' . $storageDetails['region'] . '.amazonaws.com/' . $storageDetails['bucket'];
             }
-
-            $this->storageUrl = $storageUrl;
         }
 
-        $basePath = ($this->storageUrl == false) ? url('/') : $this->storageUrl;
+        $basePath = $storageUrl ?: url('/');
 
         return rtrim($basePath, '/') . $filePath;
     }

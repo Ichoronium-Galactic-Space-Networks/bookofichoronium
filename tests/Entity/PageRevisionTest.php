@@ -2,7 +2,7 @@
 
 namespace Tests\Entity;
 
-use BookStack\Actions\ActivityType;
+use BookStack\Activity\ActivityType;
 use BookStack\Entities\Models\Page;
 use Tests\TestCase;
 
@@ -195,12 +195,12 @@ class PageRevisionTest extends TestCase
         $this->createRevisions($page, 1, ['html' => 'new page html']);
 
         $resp = $this->asAdmin()->get($page->refresh()->getUrl('/revisions'));
-        $this->withHtml($resp)->assertElementContains('td', '(WYSIWYG)');
-        $this->withHtml($resp)->assertElementNotContains('td', '(Markdown)');
+        $this->withHtml($resp)->assertElementContains('.item-list-row > div:nth-child(2)', 'WYSIWYG)');
+        $this->withHtml($resp)->assertElementNotContains('.item-list-row > div:nth-child(2)', 'Markdown)');
 
         $this->createRevisions($page, 1, ['markdown' => '# Some markdown content']);
         $resp = $this->get($page->refresh()->getUrl('/revisions'));
-        $this->withHtml($resp)->assertElementContains('td', '(Markdown)');
+        $this->withHtml($resp)->assertElementContains('.item-list-row > div:nth-child(2)', 'Markdown)');
     }
 
     public function test_revision_restore_action_only_visible_with_permission()
@@ -208,13 +208,13 @@ class PageRevisionTest extends TestCase
         $page = $this->entities->page();
         $this->createRevisions($page, 2);
 
-        $viewer = $this->getViewer();
+        $viewer = $this->users->viewer();
         $this->actingAs($viewer);
         $respHtml = $this->withHtml($this->get($page->getUrl('/revisions')));
         $respHtml->assertElementNotContains('.actions a', 'Restore');
         $respHtml->assertElementNotExists('form[action$="/restore"]');
 
-        $this->giveUserPermissions($viewer, ['page-update-all']);
+        $this->permissions->grantUserRolePermissions($viewer, ['page-update-all']);
 
         $respHtml = $this->withHtml($this->get($page->getUrl('/revisions')));
         $respHtml->assertElementContains('.actions a', 'Restore');
@@ -226,13 +226,13 @@ class PageRevisionTest extends TestCase
         $page = $this->entities->page();
         $this->createRevisions($page, 2);
 
-        $viewer = $this->getViewer();
+        $viewer = $this->users->viewer();
         $this->actingAs($viewer);
         $respHtml = $this->withHtml($this->get($page->getUrl('/revisions')));
         $respHtml->assertElementNotContains('.actions a', 'Delete');
         $respHtml->assertElementNotExists('form[action$="/delete"]');
 
-        $this->giveUserPermissions($viewer, ['page-delete-all']);
+        $this->permissions->grantUserRolePermissions($viewer, ['page-delete-all']);
 
         $respHtml = $this->withHtml($this->get($page->getUrl('/revisions')));
         $respHtml->assertElementContains('.actions a', 'Delete');
